@@ -1,0 +1,28 @@
+# ============================
+# CRITICAL - Never push this!
+# ============================
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+
+# Playwright browser downloads
+playwright-report/
+test-results/
+
+# Debug screenshots from scraper
+*.png
+*.webp
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# VS Code settings
+.vscode/
