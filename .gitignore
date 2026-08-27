@@ -1,0 +1,46 @@
+# ============================
+# CRITICAL - Never push this!
+# ============================
+.env
+.env.local
+.env.production
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+
+# Python virtual environment
+venv/
+.venv/
+env/
+
+# ML model files (too large for GitHub)
+*.pkl
+*.h5
+*.model
+
+# Dataset files (too large for GitHub)
+*.csv
+
+# Playwright browser downloads
+playwright-report/
+
+# Debug screenshots
+*.png
+*.webp
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS Files
+.DS_Store
+Thumbs.db
+
+# VS Code
+.vscode/
+
+# Build output
+dist/
+build/

@@ -1,4 +1,9 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// ✅ Fix: Use Google's public DNS (8.8.8.8) instead of college network DNS
+// College WiFi blocks MongoDB's SRV record lookups — Google DNS does not
+dns.setServers(['8.8.8.8', '8.8.4.4']);
 
 const connectDB = async () => {
   try {
