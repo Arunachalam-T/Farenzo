@@ -1,254 +1,451 @@
-"""
-Farenzo - RedBus Data Collector
-Uses your OWN browser session cookies to query the RedBus search API.
-WARNING: Cookies expire quickly (usually within 2-8 hours). 
-         Refresh cookies from your browser DevTools when you get 401/403 errors.
-"""
-
-import requests
-import pandas as pd
-import os
+import logging
 import time
 from datetime import datetime, timedelta
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 1: YOUR SESSION COOKIES (Captured from your own browser DevTools)
-# These will expire! Update them from DevTools > Application > Cookies
-# ─────────────────────────────────────────────────────────────────────────────
-cookies = {
-    'rbuuid': 'ca34d1d0-842d-11f1-8a27-831578cf5b15',
-    'mriClientId': 'BRca34d1d1-842d-11f1-8a27-831578cf5b15',
-    'rayHomeAB': 'V1',
-    'freeSearchAB': 'V2',
-    '_ga': 'GA1.1.484928212.1784546770',
-    'country': 'IND',
-    'currency': 'INR',
-    'selectedCurrency': 'INR',
-    'defaultLanguage': 'en',
-    'language': 'en',
-    'mriSessionId': 'BR9ff7df50-a23e-11f1-a84d-ebe8e11fb442',
-    'env': 'PROD',
-    'buildVersion': 'PROD_be1f247576',
-    'funnelVariant': 'RESPONSIVE',
-    'defaultlanguage': 'en',
-    '_abck': '3C84BC9A599E13D86180BF7E4394F1FB~-1~YAAQ9cEzuHBTlzOgAQAAM5pQRBBgvip8mpQMxuHBJOK/Twu4aA/rLAXO1kYb5VwH+DSJsr7JzlfujKeZbuPH6NuKDfmNwSdB77yxgDUwzalMmWEQokUYboTv/59/S4APCGdOfEqNlCIX4YcTzsynIGFe8X4tVZfwThaulALlfXtXfH76BIUCW4pb2U5exkhPRQlRsPRtPFFrgOOM61Q1b+F04cP7/l/xlnJwHJen8ScGIN2ipxrh+/ADxuXdJoc/aM48RTWoo0O0Atj0SuPnv5aoQTXOGkvcViy0Xum7A5ViXv98Tri99oDL+/VZ/UxLzkyzR5qmF0VkO0M49QEUhM7Ahlz7h4zaE0fVMwproE4bPNKj/gf+6jcfI++rRviZHci5tiAWVN6QENO0wxSvXn7WRmQyXs7wPS5z0vK7zDIXodZJghV6E5kJDMecerVeS1pPebkiKpK2YR932EJfIx3jsaiw9/F4uLgoRrpeFBbm9iKxeQE4Kg756W9t~-1~-1~-1~-1~-1',
-    '_gcl_au': '1.1.492619714.1787852534',
-    'rb_fpData': '%7B%22userAgent%22%3A%22Mozilla%2F5.0%20(Windows%20NT%2010.0%3B%20Win64%3B%20x64)%20AppleWebKit%2F537.36%20(KHTML%2C%20like%20Gecko)%20Chrome%2F151.0.0.0%20Safari%2F537.36%22%2C%22browser%22%3A%22Chrome%22%2C%22version%22%3A%22151.0.0.0%22%2C%22os%22%3A%22Windows%22%2C%22osVersion%22%3A%2210.0%22%2C%22deviceType%22%3A%22Desktop%22%2C%22screenSize%22%3A%221536%2C816%22%2C%22screenDPI%22%3A1.25%2C%22screenResolution%22%3A%221920x1080%22%2C%22screenColorDepth%22%3A24%2C%22aspectRatio%22%3A%2216%3A9%22%2C%22systemLanguage%22%3A%22en-US%22%2C%22connection%22%3A%224g%22%2C%22effectiveConnection%22%3A%224g%22%2C%22timeZone%22%3A5.5%7D',
-    'prev_mriSessionId': 'BR9ff7df50-a23e-11f1-a84d-ebe8e11fb442',
-    'channel': 'MWEB',
-    'ak_bmsc': 'B4ACA5BB9CE8910126D084EBA271A581~000000000000000000000000000000~YAAQnsEzuAkIBj+gAQAA9kFRRADotvpLgEnoLm687ea6hTNSc0ed9zyTF3MsR7Ndh6LFiZmbjBjzn47RiJkkT/ZerEPbYnOboV0gye4ws6S5p+giln1eaTxQDvdDkcZ8D8rs4GZVRK5+5M2SXG4l2r1VeXnQdiLAZZLp3HeRrdUrucmXfMGAjYqImhpa62gOGgVikqBKW2lgKxEHsfFkbmg3UOwwa84JPqgswnW+ifdYLWjQhUUcrsq2YlynIlcb3J3LL/oePepVJx2W6RJ+o1c1uWtY356YldGy45PhTa2wRAj5pxyomSeosIqD4mBfYSqCVzfACANhlGX5JqgN45FqpDHtfa27ncNagk+Hp4d7ZTzRG+//jFpQcMNdh6ckNo9h5vvQABBdL4EKCFs6r/tgmbrnpoAqiTUrbKJn++i0HEs0ewaNJuP5XddnxgrMk4Ti7HfYxfiuY38JTxx54Nr3GpunjYpa66563UlVK17HRiQrQ+/SbFSVQujAnw==',
-    'bm_sz': '32D2751E7E9FE86DBE8AA16BB9513958~YAAQjkU5Fy+vnUKgAQAAUSlSRAB4fLDX8UCwSH4pSvi/23VcEAa2tLViJFlufX3IsZRZtOUST/y9KiYLynNHUyxQSQNEHqvlm7pCHHG1FooUSdJdT9Wu52Ap1bhYhNLQXYKxYnBao9dUmIrjoSPqQhbMsO8xU6JIcDkC1jk+CEK1Tx14+6ItSZqrWVNwQjo7mEP7v5ZfE67maWg2tNtSk3rjHZWE4U8ultbSB6Lx6qUzgTfWFStzqVu13X79o0T8MT8+rz3C5lMc1K8G+P5C8uGEujeQk7VcgMeiGrdAoyoEe9FnJtRs2KoieF+XYHS92FxtuW7l7c8ukBLqJFv7uSm9ZCf+vYV0eIgH8SYJLLWJw/rPRdIayl60EldNp9YNL29KkEp+wJtQQjn9WD+ez3Yc77GMlu9snSF+cDnzuj8chcZn8ORtxxFX9jm5z7E8d8ER4g==~3752772~3753013',
-    'bm_sv': '9AAEE3D2F09B6D455649A96CF2AE8177~YAAQjkU5F1WvnUKgAQAADixSRAC3xXvRI3Titx0xXZ7L3G6dohk1L9B8CSN0qQn8lE2jL1+L93fAACJqQgsI6l2ZGdrHBsnH8D4M7HZW/v4zmPD59p1KLSJw1zcVvMIEgL4ptvJnFFXmJH1SPpPuoq00AUbDgZC1HewV7uENG1/FnQb0q0dAOLmxT3zs/oCPD0BNWqrVNK+w88LSOaP8dkRbfBX5WsHlWruY9+oDYy+qKssUdtfp0Mpb09Q26DgC~1',
-    '_ga_W2P7QGN8S2': 'GS2.1.s1787852533$o3$g1$t1787852634$j41$l0$h1642738879',
-    'rayBetaAB': 'V2',
-    'aiSmartFilterUIAB': 'V0',
-    'geolocationAB': 'V0',
-    'leanerFunnelAB': 'V2',
-    'paymentBackAB': 'V3',
-    'unifiedSrpTabsABNew': 'V2',
-    'retainAddonsAB': 'V2',
-    'srpInlineOfferAB': 'V3',
-    'abExpsVariantsForMri': '["rayBetaAB:V2","aiSmartFilterUIAB:V0","geolocationAB:V0","leanerFunnelAB:V2","paymentBackAB:V3","retainAddonsAB:V2","srpInlineOfferAB:V3"]',
-}
+import pandas as pd
+from playwright.sync_api import sync_playwright, Browser
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 2: BROWSER HEADERS (Mimics a Mobile Chrome browser)
-# ─────────────────────────────────────────────────────────────────────────────
-headers = {
-    'accept': '*/*',
-    'accept-language': 'en-US,en;q=0.9',
-    'content-type': 'application/json',
-    'origin': 'https://www.redbus.in',
-    'priority': 'u=1, i',
-    'sec-ch-ua': '"Not=A?Brand";v="99", "Google Chrome";v="151", "Chromium";v="151"',
-    'sec-ch-ua-mobile': '?1',
-    'sec-ch-ua-platform': '"Android"',
-    'sec-fetch-dest': 'empty',
-    'sec-fetch-mode': 'cors',
-    'sec-fetch-site': 'same-origin',
-    'user-agent': 'Mozilla/5.0 (Linux; Android 15; Pixel 9) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.0.0 Mobile Safari/537.36',
-}
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+)
+logger = logging.getLogger("redbus_scraper")
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 3: ROUTE CONFIGURATION
-# City IDs found from redbus.in URL when searching routes
-# ─────────────────────────────────────────────────────────────────────────────
-ROUTES = [
-    {'from': '141', 'to': '126', 'name': 'Coimbatore to Madurai'},
-    {'from': '126', 'to': '141', 'name': 'Madurai to Coimbatore'},
-    {'from': '126', 'to': '123', 'name': 'Madurai to Chennai'},
-    {'from': '123', 'to': '126', 'name': 'Chennai to Madurai'},
-    {'from': '141', 'to': '123', 'name': 'Coimbatore to Chennai'},
-    {'from': '123', 'to': '141', 'name': 'Chennai to Coimbatore'},
-]
-
-OUTPUT_CSV = 'redbus_fares.csv'
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
+)
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 4: CORE FUNCTIONS
-# ─────────────────────────────────────────────────────────────────────────────
-
-def build_params(from_city, to_city, days_ahead=1):
-    """Build query parameters for a given route and date."""
-    target_date = (datetime.now() + timedelta(days=days_ahead)).strftime('%d-%b-%Y')
-    return {
-        'fromCity': str(from_city),
-        'toCity': str(to_city),
-        'DOJ': target_date,
-        'limit': '50',
-        'offset': '0',
-        'meta': 'true',
-        'groupId': '0',
-        'sectionId': '0',
-        'sort': '0',
-        'sortOrder': '0',
-        'from': 'initialLoad',
-        'getUuid': 'true',
-        'bT': '1',
-        'clearLMBFilter': 'undefined',
-        'isFilterApplied': 'false',
-    }
+def _build_search_url(from_city, from_id, from_type, to_city, to_id, to_type, target_date):
+    return (
+        f"https://www.redbus.in/bus-tickets/{from_city.lower()}-to-{to_city.lower()}?"
+        f"fromCityName={from_city}&fromCityId={from_id}&fromCityType={from_type}&"
+        f"toCityName={to_city}&toCityId={to_id}&toCityType={to_type}&"
+        f"onward={target_date}&doj={target_date}&ref=home"
+    )
 
 
-def build_json_body():
-    """Empty filter body required by the API."""
-    return {
-        'appliedFilterCount': 0,
-        'onlyShow': [], 'dt': [], 'SeaterType': [], 'AcType': [],
-        'travelsList': [], 'amtList': [], 'bpList': [], 'dpList': [],
-        'CampaignFilter': [], 'at': [], 'persuasionList': [],
-        'bpIdentifier': [], 'dpIdentifier': [], 'bcf': [],
-        'opBusTypeFilterList': [], 'priceRange': [], 'RouteIds': [],
-        'bpKeys': [], 'dpKeys': [], 'streaksFilter': [],
-        'preRouteFilters': None,
-    }
+INVENTORY_KEYS = ("inv", "inventories")
 
 
-def parse_buses(data, params):
-    """Extract bus records from the API JSON response."""
-    inner = data.get('data', {})
-    bus_list = inner.get('inventories', [])
+def _find_inventory(payload):
+    """
+    Locate the bus inventory list inside the API response, regardless of whether
+    it's at the top level or nested under an envelope like {"data": {...}}, and
+    regardless of whether the key is named "inv" or "inventories" (RedBus has
+    used both across API versions).
+    Returns (inventory_list, path_used) so callers can log where it was found.
+    """
+    if not isinstance(payload, dict):
+        return None, None
+
+    # Direct hit at this level.
+    for key in INVENTORY_KEYS:
+        if isinstance(payload.get(key), list):
+            return payload[key], key
+
+    # Common envelope: {"success", "data": {...}, "statusCode", "headers"}
+    inner = payload.get("data")
+    if isinstance(inner, dict):
+        for key in INVENTORY_KEYS:
+            if isinstance(inner.get(key), list):
+                return inner[key], f"data.{key}"
+        # Some variants nest one level deeper, e.g. data.result.inventories
+        for key, val in inner.items():
+            if isinstance(val, dict):
+                for inv_key in INVENTORY_KEYS:
+                    if isinstance(val.get(inv_key), list):
+                        return val[inv_key], f"data.{key}.{inv_key}"
+
+    return None, None
+
+
+def _extract_min_fare(bus, prefer_discounted=True):
+    """
+    Return the lowest fare for this bus, based on RedBus's current schema:
+
+    1. fareDetailsBySeatType: {"SLEEPER": [{"originalPrice":.., "discountedPrice":.., "count":..}], ...}
+       -- the richest source; each seat type can have its own price.
+    2. fareList: flat list of numeric fares, e.g. [831.39, 942.39, ...] -- fallback.
+    3. A handful of legacy/scalar keys, in case older API variants show up again.
+
+    `prefer_discounted`: if True (default), uses discountedPrice when a live promo
+    applies -- i.e. "what a customer would pay right now". Set to False to track
+    originalPrice instead, if you want fare trends free of promotional noise.
+    """
+    def as_positive_float(v):
+        try:
+            f = float(v)
+            return f if f > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    # 1. Per-seat-type breakdown (current schema).
+    fdst = bus.get("fareDetailsBySeatType")
+    if isinstance(fdst, dict) and fdst:
+        vals = []
+        for entries in fdst.values():
+            if not isinstance(entries, list):
+                continue
+            for entry in entries:
+                if not isinstance(entry, dict):
+                    continue
+                price = None
+                if prefer_discounted:
+                    price = as_positive_float(entry.get("discountedPrice"))
+                if price is None:
+                    price = as_positive_float(entry.get("originalPrice"))
+                if price is not None:
+                    vals.append(price)
+        if vals:
+            return min(vals)
+
+    # 2. Flat fareList (current schema fallback).
+    fare_list = bus.get("fareList")
+    if isinstance(fare_list, list) and fare_list:
+        vals = [as_positive_float(f) for f in fare_list]
+        vals = [v for v in vals if v is not None]
+        if vals:
+            return min(vals)
+
+    # 3. Legacy nested fareDetails list, in case older API variants reappear.
+    fare_details = bus.get("fareDetails")
+    if isinstance(fare_details, list) and fare_details:
+        vals = [as_positive_float(f.get("totalFare") if isinstance(f, dict) else f) for f in fare_details]
+        vals = [v for v in vals if v is not None]
+        if vals:
+            return min(vals)
+
+    # 4. Direct scalar keys, lowest priority since they've never actually matched.
+    for key in ("minFare", "totalFare", "fare", "price"):
+        val = as_positive_float(bus.get(key))
+        if val is not None:
+            return val
+
+    return None
+
+
+def _extract_rating(bus):
+    """Return this bus's rating, or None if genuinely unrated (not 0.0)."""
+    for key in ("totalRatings", "avgRating", "rating", "starRating", "operatorRating"):
+        try:
+            r = float(bus.get(key))
+            if r > 0:
+                return r
+        except (TypeError, ValueError):
+            continue
+    return None
+
+
+def _parse_inventory(data, from_id, to_id, target_date):
+    inventory, path_used = _find_inventory(data)
+
+    if inventory is None:
+        top_keys = list(data.keys()) if isinstance(data, dict) else type(data)
+        nested_keys = (
+            list(data.get("data").keys())
+            if isinstance(data, dict) and isinstance(data.get("data"), dict)
+            else None
+        )
+        logger.warning(
+            "Could not locate inventory in response. Top-level keys: %s | data keys: %s",
+            top_keys, nested_keys,
+        )
+        return []
+
+    logger.info("Found inventory at '%s' (%d buses)", path_used, len(inventory))
+    fetch_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     records = []
-    for bus in bus_list:
-        # fareDetailsBySeatType gives per-seat-type pricing with original + discounted
-        fare_by_type = bus.get('fareDetailsBySeatType', {})
+    missing_fare_count = 0
 
-        # Extract prices per seat type
-        seater_fare     = fare_by_type.get('SEATER', [{}])[0].get('originalPrice') if fare_by_type.get('SEATER') else None
-        seater_discount = fare_by_type.get('SEATER', [{}])[0].get('discountedPrice') if fare_by_type.get('SEATER') else None
-        sleeper_fare    = fare_by_type.get('SLEEPER', [{}])[0].get('originalPrice') if fare_by_type.get('SLEEPER') else None
-        sleeper_discount= fare_by_type.get('SLEEPER', [{}])[0].get('discountedPrice') if fare_by_type.get('SLEEPER') else None
-        single_sl_fare  = fare_by_type.get('SINGLE_SLEEPER', [{}])[0].get('originalPrice') if fare_by_type.get('SINGLE_SLEEPER') else None
-
-        # Min fare across all types (for comparison)
-        fare_list = bus.get('fareList', [])
-        min_fare = min(fare_list) if fare_list else None
-
+    for i, bus in enumerate(inventory):
+        fare = _extract_min_fare(bus)
+        if fare is None:
+            missing_fare_count += 1
         records.append({
-            'query_timestamp':   datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'from_city_id':      params.get('fromCity'),
-            'from_city':         inner.get('parentSrcCityName', ''),
-            'to_city_id':        params.get('toCity'),
-            'to_city':           inner.get('parentDstCityName', ''),
-            'journey_date':      params.get('DOJ'),
-            'operator_id':       bus.get('operatorId'),
-            'operator_name':     bus.get('travelsName'),
-            'bus_type':          bus.get('busType'),
-            'is_ac':             bus.get('isAc'),
-            'is_sleeper':        bus.get('isSleeper'),
-            'departure_time':    bus.get('departureTime'),
-            'arrival_time':      bus.get('arrivalTime'),
-            'duration_mins':     bus.get('journeyDurationMin'),
-            'available_seats':   bus.get('availableSeats'),
-            'total_seats':       bus.get('totalSeats'),
-            # Overall min fare
-            'min_fare_inr':      min_fare,
-            # Per seat type fares (the important part!)
-            'seater_fare':       seater_fare,
-            'seater_discounted': seater_discount,
-            'sleeper_fare':      sleeper_fare,
-            'sleeper_discounted':sleeper_discount,
-            'single_sleeper_fare': single_sl_fare,
-            # Ratings
-            'bus_score':         bus.get('busScore'),
-            'total_ratings':     bus.get('totalRatings'),
+            "fetch_timestamp": fetch_time,
+            "from_city_id": from_id,
+            "to_city_id": to_id,
+            "journey_date": target_date,
+            "operator_name": bus.get("travelsName") or bus.get("operatorName"),
+            "bus_type": bus.get("busType"),
+            "departure_time": bus.get("dpTime") or bus.get("departureTime"),
+            "arrival_time": bus.get("arrTime") or bus.get("arrivalTime"),
+            "available_seats": bus.get("availableSeats") or bus.get("seatsAvailable"),
+            "price_inr": fare,
+            "rating": _extract_rating(bus),
         })
+
+    # Self-diagnosing fallback: if we couldn't find a fare for ANY bus, none of
+    # our known keys matched this response's schema. Dump the raw keys/values
+    # of the first bus so the real field name can be identified in one shot,
+    # instead of guessing key names blind again.
+    if inventory and missing_fare_count == len(inventory):
+        sample = inventory[0]
+        logger.warning(
+            "Fare extraction matched 0/%d buses -- schema has likely changed again. "
+            "First bus record keys: %s",
+            len(inventory), list(sample.keys()) if isinstance(sample, dict) else type(sample),
+        )
+        logger.warning("First bus record (raw): %s", sample)
+
     return records
 
 
+def _merge_pages(pages):
+    """
+    Merge multiple raw searchResults JSON payloads (one per scroll/page) into a
+    single combined inventory list, de-duplicating buses by a stable identity.
+    Returns (combined_inventory, first_page_metadata) -- metadata (busCounts etc.)
+    only needs to come from the first page since it describes the whole route.
+    """
+    seen_ids = set()
+    combined = []
+    first_meta = None
 
-def fetch_route(from_city, to_city, days_ahead=1):
-    """Hit the RedBus search API for a single route and date."""
-    params = build_params(from_city, to_city, days_ahead)
-    session = requests.Session()
-    session.cookies.update(cookies)
-    session.headers.update(headers)
-    # Prime the session first (helps with cookie-based auth)
-    session.get('https://www.redbus.in', timeout=10)
+    for page_data in pages:
+        inventory, _ = _find_inventory(page_data)
+        if inventory is None:
+            continue
 
-    response = session.post(
-        'https://www.redbus.in/rpw/api/searchResults',
-        params=params,
-        json=build_json_body(),
-        timeout=15
+        if first_meta is None and isinstance(page_data, dict):
+            inner = page_data.get("data") if isinstance(page_data.get("data"), dict) else page_data
+            first_meta = {
+                "busCounts": inner.get("busCounts"),
+                "metaData": inner.get("metaData"),
+            }
+
+        for bus in inventory:
+            # serviceId + doj + departureTime is a stable per-bus identity on RedBus;
+            # fall back to the object's own identity if those fields are missing.
+            bus_id = (bus.get("serviceId"), bus.get("doj"), bus.get("departureTime")) \
+                if isinstance(bus, dict) else id(bus)
+            if bus_id in seen_ids:
+                continue
+            seen_ids.add(bus_id)
+            combined.append(bus)
+
+    return combined, first_meta
+
+
+def _fetch_json_in_page(page, url, method="GET", post_data=None):
+    """Issue a fetch() from inside the page's own JS context, so it automatically
+    carries the same cookies/session as the browser -- no need to manually copy
+    auth headers."""
+    return page.evaluate(
+        """async ({url, method, postData}) => {
+            const opts = { method, headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin' };
+            if (postData) opts.body = postData;
+            const res = await fetch(url, opts);
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return await res.json();
+        }""",
+        {"url": url, "method": method, "postData": post_data},
     )
 
-    if response.status_code == 200:
-        data = response.json()
-        records = parse_buses(data, params)
-        print(f"  [OK] Got {len(records)} buses for {params['DOJ']}")
-        return records
+
+def _replace_query_param(url: str, key: str, value: str) -> str:
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+    query[key] = value
+    new_query = urlencode(query)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, new_query, parts.fragment))
+
+
+def _scrape_once(browser: Browser, search_url: str, timeout_ms: int = 30000,
+                  page_pause_ms: int = 400):
+    """
+    Open a fresh context/page, load the search URL to get the first page of
+    results, then directly replicate the same POST request with incrementing
+    `offset` query params to pull every remaining page -- RedBus paginates via
+    explicit limit/offset query params (confirmed from the captured request),
+    not scroll-triggered lazy loading, so there's no need to simulate scrolling.
+    """
+    context = browser.new_context(
+        user_agent=USER_AGENT,
+        viewport={"width": 1366, "height": 768},
+    )
+    page = context.new_page()
+    captured_pages = []
+    first_request = {}
+
+    def on_response(response):
+        if "/rpw/api/searchResults" in response.url and response.status == 200:
+            try:
+                captured_pages.append(response.json())
+                if "url" not in first_request:
+                    req = response.request
+                    first_request["url"] = req.url
+                    first_request["method"] = req.method
+                    first_request["post_data"] = req.post_data
+            except Exception as e:
+                logger.warning("Failed to parse a searchResults response: %s", e)
+
+    page.on("response", on_response)
+
+    try:
+        with page.expect_response(
+            lambda res: "/rpw/api/searchResults" in res.url and res.status == 200,
+            timeout=timeout_ms,
+        ):
+            page.goto(search_url, wait_until="domcontentloaded", timeout=timeout_ms)
+
+        if not captured_pages or "url" not in first_request:
+            logger.warning("No initial searchResults response captured.")
+            return {"data": {"inventories": []}}
+
+        first_inventory, meta = _merge_pages(captured_pages)
+        query = dict(parse_qsl(urlsplit(first_request["url"]).query))
+        limit = int(query.get("limit", len(first_inventory) or 10))
+        total = None
+        if meta and isinstance(meta.get("busCounts"), dict):
+            total = meta["busCounts"].get("total")
+        elif meta and isinstance(meta.get("metaData"), dict):
+            total = meta["metaData"].get("totalCount")
+
+        if not total or limit <= 0:
+            logger.info("No pagination total found; returning first page only (%d buses).", len(first_inventory))
+        else:
+            logger.info("Route has %d total buses, %d per page -- fetching remaining pages.", total, limit)
+            offsets_needed = range(limit, total, limit)
+            for offset in offsets_needed:
+                page_url = _replace_query_param(first_request["url"], "offset", str(offset))
+                try:
+                    page_data = _fetch_json_in_page(
+                        page, page_url, method=first_request["method"], post_data=first_request["post_data"]
+                    )
+                    captured_pages.append(page_data)
+                    inv, _ = _find_inventory(page_data)
+                    logger.info("Fetched offset=%d: %d buses", offset, len(inv) if inv else 0)
+                except Exception as e:
+                    logger.warning("Failed to fetch offset=%d: %s", offset, e)
+                page.wait_for_timeout(page_pause_ms)  # gentle pacing between requests
+
+        combined_inventory, meta = _merge_pages(captured_pages)
+        logger.info(
+            "Collected %d searchResults page(s), %d unique buses total.",
+            len(captured_pages), len(combined_inventory),
+        )
+
+        _, path_used = _find_inventory(captured_pages[0])
+        if path_used and path_used.startswith("data."):
+            key = path_used.split(".", 1)[1]
+            return {"data": {key: combined_inventory}}
+        elif path_used:
+            return {path_used: combined_inventory}
+        else:
+            return {"data": {"inventories": combined_inventory}}
+
+    finally:
+        context.close()
+
+
+def scrape_bus_data(
+    from_city="Coimbatore",
+    from_id="141",
+    from_type="CITY",
+    to_city="Madurai",
+    to_id="126",
+    to_type="CITY",
+    days_ahead=7,
+    max_retries=3,
+    retry_backoff_seconds=5,
+    browser=None,
+):
+    """
+    Scrape bus inventory for a single route/date from RedBus's internal search API.
+
+    If `browser` is passed in (an already-launched Playwright Browser), it will be
+    reused instead of launching a new one -- much cheaper when calling this in a loop
+    over multiple routes/dates.
+    """
+    target_date = (datetime.now() + timedelta(days=days_ahead)).strftime("%d-%b-%Y")
+    search_url = _build_search_url(from_city, from_id, from_type, to_city, to_id, to_type, target_date)
+
+    logger.info("Scraping route %s (%s) -> %s (%s) for %s", from_city, from_id, to_city, to_id, target_date)
+
+    owns_browser = browser is None
+    playwright_ctx = None
+    records = []
+
+    try:
+        if owns_browser:
+            playwright_ctx = sync_playwright().start()
+            browser = playwright_ctx.chromium.launch(
+                headless=True,
+                channel="chrome",
+                args=["--disable-blink-features=AutomationControlled"],
+            )
+
+        last_error = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                data = _scrape_once(browser, search_url)
+                records = _parse_inventory(data, from_id, to_id, target_date)
+                logger.info("Attempt %d succeeded: %d buses extracted", attempt, len(records))
+                break
+            except Exception as e:
+                last_error = e
+                logger.warning("Attempt %d/%d failed: %s", attempt, max_retries, e)
+                if attempt < max_retries:
+                    time.sleep(retry_backoff_seconds * attempt)  # linear backoff
+        else:
+            logger.error("All %d attempts failed. Last error: %s", max_retries, last_error)
+
+    finally:
+        if owns_browser:
+            if browser:
+                browser.close()
+            if playwright_ctx:
+                playwright_ctx.stop()
+
+    return pd.DataFrame(records)
+
+
+def scrape_multiple_routes(routes, days_ahead=7, max_retries=3):
+    """
+    Scrape several routes reusing a single browser instance.
+
+    routes: list of dicts, each like:
+        {"from_city": "Coimbatore", "from_id": "141", "to_city": "Madurai", "to_id": "126"}
+    """
+    all_frames = []
+
+    with sync_playwright() as p:
+        browser = p.chromium.launch(
+            headless=True,
+            channel="chrome",
+            args=["--disable-blink-features=AutomationControlled"],
+        )
+        try:
+            for route in routes:
+                df = scrape_bus_data(
+                    from_city=route["from_city"],
+                    from_id=route["from_id"],
+                    to_city=route["to_city"],
+                    to_id=route["to_id"],
+                    days_ahead=days_ahead,
+                    max_retries=max_retries,
+                    browser=browser,
+                )
+                all_frames.append(df)
+                time.sleep(2)  # gentle pacing between requests
+        finally:
+            browser.close()
+
+    return pd.concat(all_frames, ignore_index=True) if all_frames else pd.DataFrame()
+
+
+# ===================================================
+# MAIN EXECUTION
+# ===================================================
+if __name__ == "__main__":
+    df = scrape_bus_data(from_city="Coimbatore", from_id="141", to_city="Madurai", to_id="126", days_ahead=7)
+
+    if not df.empty:
+        logger.info("SUCCESS: Extracted %d records", len(df))
+        print(df[["operator_name", "bus_type", "available_seats", "price_inr", "rating"]].head(10))
     else:
-        print(f"  [FAIL] HTTP {response.status_code} -- Cookies may have expired!")
-        print(f"     Response: {response.text[:200]}")
-        return []
-
-
-def save_to_csv(records):
-    """Append records to CSV (creates file if not exists)."""
-    if not records:
-        return
-    df = pd.DataFrame(records)
-    file_exists = os.path.exists(OUTPUT_CSV)
-    df.to_csv(OUTPUT_CSV, mode='a', header=not file_exists, index=False)
-    print(f"  [SAVED] {len(records)} records to {OUTPUT_CSV}")
-
-
-# ─────────────────────────────────────────────────────────────────────────────
-# SECTION 5: MAIN - Run a collection sweep across all routes & upcoming dates
-# ─────────────────────────────────────────────────────────────────────────────
-
-if __name__ == '__main__':
-    # Collect for ALL days from tomorrow up to 30 days ahead (next month)
-    # Each run captures prices at that MOMENT - run every 4 hours for price tracking
-    DAYS_TO_COLLECT = list(range(1, 31))  # Day 1 to Day 30
-
-    all_records = []
-    total_routes = len(ROUTES)
-
-    for i, route in enumerate(ROUTES, 1):
-        print(f"\n[{i}/{total_routes}] Route: {route['name']}")
-        for days in DAYS_TO_COLLECT:
-            records = fetch_route(route['from'], route['to'], days_ahead=days)
-            all_records.extend(records)
-            if records:
-                time.sleep(1.5)  # 1.5s delay between requests
-
-    save_to_csv(all_records)
-
-    # Summary
-    if all_records:
-        df_new = pd.DataFrame(all_records)
-        print(f"\n[DONE] Collected {len(all_records)} new records this run")
-        if os.path.exists(OUTPUT_CSV):
-            df_total = pd.read_csv(OUTPUT_CSV)
-            print(f"[TOTAL] CSV now has {len(df_total)} records total")
-        print(f"[FILE] Saved to: {os.path.abspath(OUTPUT_CSV)}")
-        print(f"\n[PRICE SAMPLE] Min fares captured:")
-        summary = df_new.groupby(['from_city','to_city','journey_date'])['min_fare_inr'].min().reset_index()
-        print(summary.to_string(index=False))
-    else:
-        print("[WARN] No records collected - cookies may have expired!")
-        print("       Go to redbus.in in Chrome, open DevTools > Application > Cookies")
-        print("       Copy fresh cookies into this script and try again.")
+        logger.error("Failed to capture records.")
