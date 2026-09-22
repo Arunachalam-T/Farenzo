@@ -1,4 +1,4 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
 const FareSchema = new mongoose.Schema({
   routeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Route', required: true },
@@ -20,4 +20,8 @@ const FareSchema = new mongoose.Schema({
   isHoliday: { type: Boolean, default: false }
 });
 
+FareSchema.index({ fromCity: 1, toCity: 1, journeyDate: 1 }); // fast route+date lookup
+FareSchema.index({ recordedAt: -1 }); // fast history queries
+
 module.exports = mongoose.model('Fare', FareSchema);
+

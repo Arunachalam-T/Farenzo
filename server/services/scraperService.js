@@ -30,7 +30,7 @@ async function runScraper() {
   
   const url = `https://www.redbus.in/bus-tickets/chennai-to-bangalore?fromCityName=Chennai&fromCityId=124&toCityName=Bangalore&toCityId=122&onward=${dateStr}`;
   
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: 'new' });
   const context = await browser.newContext({
     viewport: { width: 1280, height: 720 },
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
@@ -84,9 +84,19 @@ async function runScraper() {
         daysBeforeJourney: 2                // We scraped this 2 days in advance
       }));
 
-      // 4. Save everything to the database in one big chunk!
-      await Fare.insertMany(fareDocuments);
-      console.log(`✅ Successfully saved ${fareDocuments.length} fares to MongoDB!`);
+      // 4. Check for duplicates before saving
+      const existingCount = await Fare.countDocuments({
+        fromCity: 'Chennai',
+        toCity: 'Bangalore',
+        journeyDate: { $gte: targetDate, $lt: new Date(targetDate.getTime() + 86400000) }
+      });
+
+      if (existingCount > 0) {
+        console.log(`⚠️ Fares for this date already exist (${existingCount} records). Skipping insert to avoid duplicates.`);
+      } else {
+        await Fare.insertMany(fareDocuments);
+        console.log(`✅ Successfully saved ${fareDocuments.length} fares to MongoDB!`);
+      }
       
     } else {
       console.log("⚠️ No buses found.");

@@ -1,7 +1,7 @@
-﻿const mongoose = require('mongoose');
+const mongoose = require('mongoose');
 
 const AlertSchema = new mongoose.Schema({
-  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  userId: { type: String, required: true },
   routeId: { type: mongoose.Schema.Types.ObjectId, ref: 'Route', required: true },
   fromCity: { type: String, required: true },
   toCity: { type: String, required: true },
